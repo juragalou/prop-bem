@@ -97,6 +97,7 @@ def K_t(n , Vmax):
         K_t = T_total / (rho * n**2 * (2 * Rtot)**4)
         K_t_values.append((K_t, J))
     return np.array(K_t_values)
+# TODO: tester une nouvelle méthode pour le calcul de Kt
 
 
 
