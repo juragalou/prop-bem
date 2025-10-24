@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 
 
 import numpy as np
-import naca16_509_m06_clcd as naca
+#import naca16_509_m06_clcd as naca
 
 rho=1.225        
 w=0.3     
@@ -20,7 +20,7 @@ def compute_induction_factors( u_0):
 
     """
     Calcule les facteurs d’induction axiaux (a) et tangentiels (A)
-    le long du rayon d’une hélice ou turbine à partir du modèle BEM simple.
+    le long du rayon d’une hélice ou turbine à partir du modèle BEM simple ok ok .
     """
     beta = np.deg2rad(beta_deg)
     R = np.linspace(0.125, Rtot, n_points) 
@@ -67,11 +67,11 @@ def compute_induction_factors( u_0):
 
     return R, np.array(solutions_a), np.array(solutions_A)
 
-def Thrust(R, solutions_a):
+def Thrust(R, solutions_a, v ):
     """
     Calcule la poussée totale exercée par l’hélice ou la turbine.
     """
-    vals =4 * np.pi * R * rho * u_0**2 * solutions_a * (1 + solutions_a)
+    vals =4 * np.pi * R * rho * v**2 * solutions_a * (1 + solutions_a)
     T_r = cumulative_trapezoid(vals, R, initial=0.0) 
     T_total = np.trapz(vals, R)
     return T_r,T_total
@@ -93,11 +93,14 @@ def K_t(n , Vmax):
     for v in np.linspace(0, Vmax, 100):
         J = v / (n * 2 * Rtot)
         R, a_factors, A_factors = compute_induction_factors( u_0=v)
-        T_r, T_total = Thrust(R, a_factors)
+        
+        T_r, T_total = Thrust(R, a_factors, v )
         K_t = T_total / (rho * n**2 * (2 * Rtot)**4)
         K_t_values.append((K_t, J))
+        if K_t < 0: 
+            break
+
     return np.array(K_t_values)
-# TODO: tester une nouvelle méthode pour le calcul de Kt
 
 
 
@@ -106,7 +109,7 @@ def K_t(n , Vmax):
 
 if __name__ == "__main__":
     R, a_factors, A_factors = compute_induction_factors(u_0=u_0)
-    T_r, T_total = Thrust(R, a_factors)
+    T_r, T_total = Thrust(R, a_factors, u_0)
     Q_r, Q_total = torque(R, A_factors,a_factors)
     K_t_values = K_t(n=omega/(2*np.pi), Vmax=30)
     print("Rayons (m):", R)
