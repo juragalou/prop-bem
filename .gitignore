@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.pyc
+.venv/
+env/
+*.log
+
+# Notebooks
+*.ipynb_checkpoints/
+
+# LaTeX
+*.aux
+*.fdb_latexmk
+*.fls
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.bbl
+*.blg
+
+# macOS
+.DS_Store
+
+# Secrets
+.env
