@@ -4,26 +4,20 @@ import matplotlib.pyplot as plt
 
 
 import numpy as np
-#import naca16_509_m06_clcd as naca
+import naca16_509_m06_clcd as naca
+import stdatm as sa
 
-rho=1.225        
-w=0.3     
-Rtot=0.5        
-u_0=10          
-omega=2 * np.pi * 20
-c=0.15          
-B=2             
-beta_deg=25     
-n_points=100    
 
-def compute_induction_factors( u_0):
+
+
+
+def compute_induction_factors( u_0, cst_pitch,hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch= None):
 
     """
     Calcule les facteurs d’induction axiaux (a) et tangentiels (A)
     le long du rayon d’une hélice ou turbine à partir du modèle BEM simple ok ok .
     """
-    beta = np.deg2rad(beta_deg)
-    R = np.linspace(0.125, Rtot, n_points) 
+    R = np.linspace(hub_radius, Rtot, n_points)
 
 
     solutions_a = []
@@ -33,6 +27,14 @@ def compute_induction_factors( u_0):
     A = 0.01
 
     for r in R:
+        if cst_pitch:
+            beta = np.radians(beta_deg)
+        else:
+            if beta_pitch is None:
+                raise ValueError("beta_pitch must be provided when cst_pitch is False") 
+            dbeta = np.deg2rad(beta_pitch) - np.deg2rad(beta_deg)
+            p_ref_0 = 2 * np.pi * 0.75 * Rtot * np.tan( np.radians(beta_deg))
+            beta = np.arctan( p_ref_0 / (2 * np.pi * r) ) + dbeta
 
         a_new, A_new = 10, 10
 
@@ -55,8 +57,8 @@ def compute_induction_factors( u_0):
             Ct = Cl * np.sin(phi) - Cd * np.cos(phi)
 
 
-            a_new = (sigma * Cn * (1 + a)) / (2 * max(1 - np.cos(2*phi), 1e-8))
-            A_new = (sigma * Ct * (1 - A)) / (2 * max(np.sin(2*phi), 1e-8))
+            a_new = (sigma * Cn * (1 + a)) / (2 * (1 - np.cos(2*phi)))
+            A_new = (sigma * Ct * (1 - A)) / (2 * np.sin(2*phi))
 
 
             a = (1-w)*a + w*a_new
@@ -67,7 +69,7 @@ def compute_induction_factors( u_0):
 
     return R, np.array(solutions_a), np.array(solutions_A)
 
-def Thrust(R, solutions_a, v ):
+def Thrust(R, solutions_a, v, rho):
     """
     Calcule la poussée totale exercée par l’hélice ou la turbine.
     """
@@ -76,7 +78,7 @@ def Thrust(R, solutions_a, v ):
     T_total = np.trapz(vals, R)
     return T_r,T_total
 
-def torque(R, solutions_A, solutions_a,v):
+def torque(R, solutions_A, solutions_a,v, rho, omega):
     """
     Calcule le couple total exercé par l’hélice ou la turbine.
     """
@@ -85,16 +87,16 @@ def torque(R, solutions_A, solutions_a,v):
     Q_total = np.trapz(vals, R)
     return Q_r,Q_total
 
-def K_t(n , Vmax):
+def K_t(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de poussée K_t.
     """
     K_t_values = []
     for v in np.linspace(0, Vmax, 100):
         J = v / (n * 2 * Rtot)
-        R, a_factors, A_factors = compute_induction_factors( u_0=v)
+        R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
         
-        T_r, T_total = Thrust(R, a_factors, v )
+        T_r, T_total = Thrust(R, a_factors, v, rho)
         K_t = T_total / (rho * n**2 * (2 * Rtot)**4)
         K_t_values.append((K_t, J))
         if K_t < 0: 
@@ -102,20 +104,17 @@ def K_t(n , Vmax):
 
     return np.array(K_t_values)
 
-def K_q(n , Vmax):
+def K_q(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de couple K_q.
     """
     K_q_values = []
     for v in np.linspace(0, Vmax, 100):
         J = v / (n * 2 * Rtot)
-        R, a_factors, A_factors = compute_induction_factors( u_0=v)
-        
-        Q_r, Q_total = torque(R, A_factors, a_factors,v)
+        R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+
+        Q_r, Q_total = torque(R, A_factors, a_factors,v, rho, omega)
         K_q = Q_total / (rho * n**2 * (2 * Rtot)**5)
         K_q_values.append((K_q, J))
-        if K_q < 0: 
-            break
-
+       
     return np.array(K_q_values)
-

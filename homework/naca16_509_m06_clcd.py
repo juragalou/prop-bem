@@ -9,8 +9,10 @@ import scipy.interpolate as sp
 # Look-up for the behavior of the NACA16-509
 
 def naca16_509_m06(a):
-
-    filename = 'naca16-509-m06_clcd.txt'
+    import os
+    # Get the directory containing the current script
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    filename = os.path.join(current_dir, 'naca16-509-m06_clcd.txt')
     f = open(filename,"r")
     f.readline()
     f1 = f.readlines()
