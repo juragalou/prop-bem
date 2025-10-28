@@ -48,9 +48,9 @@ def compute_induction_factors( u_0, cst_pitch,hub_radius, Rtot, n_points, beta_d
 
             alpha = beta - phi 
 
-            #Cl, Cd, flag = naca.naca16_509_m06(alpha)
-            Cl = 2 * np.pi * alpha  # Lift coefficient (linear approximation)
-            Cd = 0
+            Cl, Cd, flag = naca.naca16_509_m06(alpha)
+            #Cl = 2 * np.pi * alpha  # Lift coefficient (linear approximation)
+            #Cd = 0
 
 
             Cn = Cl * np.cos(phi) + Cd * np.sin(phi)
@@ -100,7 +100,7 @@ def K_t(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega
     Calcule le coefficient de poussée K_t.
     """
     K_t_values = []
-    for v in np.linspace(0, Vmax, 100):
+    for v in np.linspace(0, Vmax, n_points):
         J = v / (n * 2 * Rtot)
         R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
         
@@ -115,7 +115,7 @@ def K_q(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega
     Calcule le coefficient de couple K_q.
     """
     K_q_values = []
-    for v in np.linspace(0, Vmax, 100):
+    for v in np.linspace(0, Vmax, n_points):
         J = v / (n * 2 * Rtot)
         R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
 
@@ -132,7 +132,7 @@ def K_p(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega
     Calcule le coefficient de puissance K_p.
     """
     K_p_values = []
-    for v in np.linspace(0, Vmax, 100):
+    for v in np.linspace(0, Vmax, n_points):
         J = v / (n * 2 * Rtot)
         R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
         Q_r, Q_total = torque(R, A_factors, a_factors, v, rho, omega)
@@ -143,17 +143,3 @@ def K_p(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega
 
     return np.array(K_p_values)
 
-def efficiency(K_t_values, K_q_values):
-    """
-    Calcule le rendement de l’hélice ou de la turbine.
-    """
-    efficiencies = []
-    for (k_t, J_t), (k_q, J_q) in zip(K_t_values, K_q_values):
-        if J_t != J_q:
-            raise ValueError("Mismatched J values between K_t and K_q")
-        if k_t == 0:
-            eta = 0
-        else:
-            eta = k_t / (2 * np.pi * k_q)
-        efficiencies.append((eta, J_t))
-    return np.array(efficiencies)

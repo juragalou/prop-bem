@@ -4,7 +4,7 @@ import homework as hw
 import stdatm as sa
 
 # === Choisir le cas à exécuter ===
-EXERCICE = 1  # <-- mets 1 ou 2 ici
+EXERCICE = 2 # <-- mets 1 ou 2 ici
 
 # === Paramètres communs ===
 rho = 1.225        
@@ -18,7 +18,7 @@ if EXERCICE == 1:
     c = 0.15          
     B = 2             
     beta_deg = 25     
-    n_points = 100    
+    n_points = 100
     hub_radius = 0.125 
 
     # --- Calcul des facteurs et des coefficients ---
@@ -48,7 +48,6 @@ if EXERCICE == 1:
         beta_deg=beta_deg, w=w, omega=omega, B=B, c=c
     )
 
-    eta = hw.efficiency(K_t_values, K_q_values)
 
     # --- Extraction et nettoyage des données ---
 
@@ -70,20 +69,24 @@ if EXERCICE == 1:
     J_P = J_P[mask_P]
     kP = kP[mask_P]
 
-    J_eta = eta[:, 1]
-    k_eta = eta[:, 0]
-    mask_eta = ~np.isnan(k_eta)
-    J_eta = J_eta[mask_eta]
-    k_eta = k_eta[mask_eta]
+    #print(kP)
+    eta = J_P * kT / kP
 
-    print(K_p_values)
+    neg_indices = np.where(eta < 0)[0]  # indices où kP < 0
+    if len(neg_indices) > 0:
+        idx = neg_indices[0]           # premier indice négatif
+        eta = eta[:idx]
+        J_P = J_P[:idx]
+
+
+    
 
     # --- Tracé des courbes ---
     plt.figure(figsize=(8,5))
     #plt.plot(J_T, kT, marker='o', markersize=3, label=r"$k_T(J)$")
     #plt.plot(J_Q, kQ, marker='s', markersize=3, label=r"$k_Q(J)$")
     #plt.plot(J_P,kP, marker='^', markersize=3, label=r"$k_P(J)$")
-    plt.plot(J_eta, k_eta, marker='x', markersize=3, label=r"$\eta(J)$")
+    #plt.plot(J_P, eta, marker='x', markersize=3, label=r"$\eta(J)$")
 
     # --- Mise en forme du graphe ---
     plt.title("Exercice 1 — Coefficients $k_T(J)$ et $k_Q(J)$")
