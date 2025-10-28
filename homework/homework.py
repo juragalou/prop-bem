@@ -87,6 +87,14 @@ def torque(R, solutions_A, solutions_a,v, rho, omega):
     Q_total = np.trapz(vals, R)
     return Q_r,Q_total
 
+def mechanical_power(Q_total, omega):
+    """
+    Calcule la puissance mécanique fournie par l’hélice ou la turbine.
+    """
+    P_mech = Q_total * omega
+    return P_mech
+
+
 def K_t(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de poussée K_t.
@@ -99,9 +107,7 @@ def K_t(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega
         T_r, T_total = Thrust(R, a_factors, v, rho)
         K_t = T_total / (rho * n**2 * (2 * Rtot)**4)
         K_t_values.append((K_t, J))
-        if K_t < 0: 
-            break
-
+        
     return np.array(K_t_values)
 
 def K_q(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
@@ -118,3 +124,36 @@ def K_q(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega
         K_q_values.append((K_q, J))
        
     return np.array(K_q_values)
+
+
+
+def K_p(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+    """
+    Calcule le coefficient de puissance K_p.
+    """
+    K_p_values = []
+    for v in np.linspace(0, Vmax, 100):
+        J = v / (n * 2 * Rtot)
+        R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+        Q_r, Q_total = torque(R, A_factors, a_factors, v, rho, omega)
+
+        P_mech = mechanical_power(Q_total, omega)
+        K_p = P_mech / (rho * n**3 * (2 * Rtot)**5)
+        K_p_values.append((K_p, J))
+
+    return np.array(K_p_values)
+
+def efficiency(K_t_values, K_q_values):
+    """
+    Calcule le rendement de l’hélice ou de la turbine.
+    """
+    efficiencies = []
+    for (k_t, J_t), (k_q, J_q) in zip(K_t_values, K_q_values):
+        if J_t != J_q:
+            raise ValueError("Mismatched J values between K_t and K_q")
+        if k_t == 0:
+            eta = 0
+        else:
+            eta = k_t / (2 * np.pi * k_q)
+        efficiencies.append((eta, J_t))
+    return np.array(efficiencies)

@@ -4,7 +4,7 @@ import homework as hw
 import stdatm as sa
 
 # === Choisir le cas à exécuter ===
-EXERCICE = 2 # <-- mets 1 ou 2 ici
+EXERCICE = 1  # <-- mets 1 ou 2 ici
 
 # === Paramètres communs ===
 rho = 1.225        
@@ -21,11 +21,79 @@ if EXERCICE == 1:
     n_points = 100    
     hub_radius = 0.125 
 
-    R, a_factors, A_factors = hw.compute_induction_factors(u_0=u_0, cst_pitch=True, hub_radius=hub_radius, Rtot=Rtot, n_points=n_points, beta_deg=beta_deg, w=w, omega=omega, B=B, c=c, beta_pitch=0)
+    # --- Calcul des facteurs et des coefficients ---
+    R, a_factors, A_factors = hw.compute_induction_factors(
+        u_0=u_0, cst_pitch=True, hub_radius=hub_radius, Rtot=Rtot,
+        n_points=n_points, beta_deg=beta_deg, w=w, omega=omega, B=B, c=c, beta_pitch=0
+    )
+
     T_r, T_total = hw.Thrust(R, a_factors, u_0, rho)
-    Q_r, Q_total = hw.torque(R, A_factors,a_factors,u_0, rho, omega)
-    K_t_values = hw.K_t(n=omega/(2*np.pi), Vmax=30, cst_pitch=True, rho=rho, Rtot=Rtot, hub_radius=hub_radius, n_points=n_points, beta_deg=beta_deg, w=w, omega=omega, B=B, c=c)
-    K_q_values = hw.K_q(n=omega/(2*np.pi), Vmax=30, cst_pitch=True, rho=rho, Rtot=Rtot, hub_radius=hub_radius, n_points=n_points, beta_deg=beta_deg, w=w, omega=omega, B=B, c=c)
+    Q_r, Q_total = hw.torque(R, A_factors, a_factors, u_0, rho, omega)
+
+    K_t_values = hw.K_t(
+        n=omega/(2*np.pi), Vmax=30, cst_pitch=True, rho=rho,
+        Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
+        beta_deg=beta_deg, w=w, omega=omega, B=B, c=c
+    )
+
+    K_q_values = hw.K_q(
+        n=omega/(2*np.pi), Vmax=30, cst_pitch=True, rho=rho,
+        Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
+        beta_deg=beta_deg, w=w, omega=omega, B=B, c=c
+    )
+
+    K_p_values = hw.K_p(
+        n=omega/(2*np.pi), Vmax=30, cst_pitch=True, rho=rho,
+        Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
+        beta_deg=beta_deg, w=w, omega=omega, B=B, c=c
+    )
+
+    eta = hw.efficiency(K_t_values, K_q_values)
+
+    # --- Extraction et nettoyage des données ---
+
+    J_T = K_t_values[:, 1]
+    kT = K_t_values[:, 0]
+    mask_T = ~np.isnan(kT)
+    J_T = J_T[mask_T]
+    kT = kT[mask_T]
+
+    J_Q = K_q_values[:, 1]
+    kQ = K_q_values[:, 0]
+    mask_Q = ~np.isnan(kQ)
+    J_Q = J_Q[mask_Q]
+    kQ = kQ[mask_Q]
+
+    J_P = K_p_values[:, 1]
+    kP = K_p_values[:, 0]
+    mask_P = ~np.isnan(kP)
+    J_P = J_P[mask_P]
+    kP = kP[mask_P]
+
+    J_eta = eta[:, 1]
+    k_eta = eta[:, 0]
+    mask_eta = ~np.isnan(k_eta)
+    J_eta = J_eta[mask_eta]
+    k_eta = k_eta[mask_eta]
+
+    print(K_p_values)
+
+    # --- Tracé des courbes ---
+    plt.figure(figsize=(8,5))
+    #plt.plot(J_T, kT, marker='o', markersize=3, label=r"$k_T(J)$")
+    #plt.plot(J_Q, kQ, marker='s', markersize=3, label=r"$k_Q(J)$")
+    #plt.plot(J_P,kP, marker='^', markersize=3, label=r"$k_P(J)$")
+    plt.plot(J_eta, k_eta, marker='x', markersize=3, label=r"$\eta(J)$")
+
+    # --- Mise en forme du graphe ---
+    plt.title("Exercice 1 — Coefficients $k_T(J)$ et $k_Q(J)$")
+    plt.xlabel(r"$J = V / (nD)$")
+    plt.ylabel("Coefficient")
+    plt.grid(True, alpha=0.4)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
 
 if EXERCICE == 2:
 
@@ -84,7 +152,4 @@ if EXERCICE == 2:
     plt.tight_layout()
     plt.show()
 
-if EXERCICE == 3:
-    print("=== Exercice 3 ")
 
-    
