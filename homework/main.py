@@ -2,6 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import homework as hw
 import stdatm as sa
+from scipy.optimize import fsolve 
 
 # === Choisir le cas à exécuter ===
 EXERCICE = 1 # <-- mets 1 ou 2 ici
@@ -10,7 +11,9 @@ EXERCICE = 1 # <-- mets 1 ou 2 ici
 rho = 1.225        
 w = 0.3     
 
-if EXERCICE == 1:
+#if EXERCICE == 1:
+
+def exo1():
     print("=== Exercice 1 : prop simple ===")
     Rtot = 0.5        
     u_0 = 10          
@@ -98,7 +101,8 @@ if EXERCICE == 1:
     plt.show()
 
 
-if EXERCICE == 2:
+#if EXERCICE == 2:
+def exo2():
 
     # === Paramètres communs ===
     print("=== Exercice 2 : Hamilton-Standard ===")
@@ -154,5 +158,62 @@ if EXERCICE == 2:
     plt.legend(title=r"$\beta_{pitch}$ (°)")
     plt.tight_layout()
     plt.show()
+
+#if EXERCICE == 3:
+def exo3(z ,P_engine):
+
+
+    Rtot = 3.4 / 2
+    hub_radius = 0.45 / 2
+    B = 4
+    c = 0.25
+    beta_deg = 15
+    w = 0.3
+    omega = 2 * np.pi * 20
+    n_points = 100
+    rho = sa.stdatm(z)[2] 
+    M = 8430 * 0.45359237    #[Kg]
+    A_wing = 21.83 #[m^2]
+    C_D0 = 0.0163 
+    g = 9.81 #[m/s^2]
+    e = 0.8
+    b = 11.28 #[m]
+    theta = np.deg2rad(45)
+    AR = b**2/A_wing
+    K = 1/(np.pi * AR * e)
+
+
+    def power(u_0, beta_pitch):
+        R, a_factors, A_factors = hw.compute_induction_factors(u_0=u_0, cst_pitch=False, hub_radius=hub_radius, Rtot=Rtot,n_points=n_points, beta_deg=beta_deg, w=w, omega=omega, B=B, c=c, beta_pitch= beta_pitch)
+        D = 0.5 * rho  * u_0 **2 * A_wing * ( C_D0 + K* ((M*g*np.cos(theta))/(0.5*rho * u_0**2*A_wing))**2)
+        _,T = hw.Thrust(R, a_factors, u_0, rho)
+        _,Q = hw.torque(R, A_factors, a_factors,u_0,rho, omega )
+        P_mech = hw.mechanical_power(Q, omega)
+
+        return T, D, P_mech
+
+
+    def equation(x):
+        u_0, beta_pitch = x
+        T, D, P_mech = power(u_0, beta_pitch)
+        equ1 = T - (D + M * g * np.sin(theta))
+        equ2 = P_engine - P_mech
+
+        return[equ1,equ2]
+
+    sol, infodict, ier, msg= fsolve(equation ,x0 = [130.0, 25.0], full_output = True)
+    if ier != 1:
+        print("FSOLVE n'a pas convergé:", msg)
+    u0_sol, beta_sol = sol
+
+    # sanity check
+    T, D, P_mech = power(u0_sol, beta_sol)
+    print(f"u0 = {u0_sol:.2f} m/s | beta = {beta_sol:.2f}°")
+    print(f"T = {T:.0f} N | D + Mg sinθ = {(D + M*g*np.sin(theta)):.0f} N")
+    print(f"P_mech = {P_mech/1e3:.1f} kW | P_engine = {P_engine/1e3:.1f} kW")
+
+    return u0_sol, beta_sol 
+
+print(exo2())
 
 

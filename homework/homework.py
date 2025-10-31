@@ -48,9 +48,9 @@ def compute_induction_factors( u_0, cst_pitch,hub_radius, Rtot, n_points, beta_d
 
             alpha = beta - phi 
 
-            #Cl, Cd, flag = naca.naca16_509_m06(alpha)
-            Cl = 2 * np.pi * alpha  # Lift coefficient (linear approximation)
-            Cd = 0
+            Cl, Cd, flag = naca.naca16_509_m06(alpha)
+            #Cl = 2 * np.pi * alpha  # Lift coefficient (linear approximation)
+            #Cd = 0
 
 
             Cn = Cl * np.cos(phi) + Cd * np.sin(phi)
