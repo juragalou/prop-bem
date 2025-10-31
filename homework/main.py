@@ -4,7 +4,7 @@ import homework as hw
 import stdatm as sa
 
 # === Choisir le cas à exécuter ===
-EXERCICE = 2 # <-- mets 1 ou 2 ici
+EXERCICE = 1 # <-- mets 1 ou 2 ici
 
 # === Paramètres communs ===
 rho = 1.225        
@@ -68,7 +68,7 @@ if EXERCICE == 1:
     mask_P = ~np.isnan(kP)
     J_P = J_P[mask_P]
     kP = kP[mask_P]
-
+    
     #print(kP)
     eta = J_P * kT / kP
 
@@ -76,17 +76,17 @@ if EXERCICE == 1:
     if len(neg_indices) > 0:
         idx = neg_indices[0]           # premier indice négatif
         eta = eta[:idx]
-        J_P = J_P[:idx]
+        J_P2 = J_P[:idx]
 
 
     
 
     # --- Tracé des courbes ---
     plt.figure(figsize=(8,5))
-    #plt.plot(J_T, kT, marker='o', markersize=3, label=r"$k_T(J)$")
-    #plt.plot(J_Q, kQ, marker='s', markersize=3, label=r"$k_Q(J)$")
-    #plt.plot(J_P,kP, marker='^', markersize=3, label=r"$k_P(J)$")
-    #plt.plot(J_P, eta, marker='x', markersize=3, label=r"$\eta(J)$")
+    plt.plot(J_T, kT, marker='o', markersize=3, label=r"$k_T(J)$")
+    plt.plot(J_Q, kQ, marker='s', markersize=3, label=r"$k_Q(J)$")
+    plt.plot(J_P,kP, marker='^', markersize=3, label=r"$k_P(J)$")
+    plt.plot(J_P2, eta, marker='x', markersize=3, label=r"$\eta(J)$")
 
     # --- Mise en forme du graphe ---
     plt.title("Exercice 1 — Coefficients $k_T(J)$ et $k_Q(J)$")
