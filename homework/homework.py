@@ -8,10 +8,7 @@ import naca16_509_m06_clcd as naca
 import stdatm as sa
 
 
-
-
-
-def compute_induction_factors( u_0, cst_pitch,hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch= None):
+def compute_induction_factors( v, cst_pitch,hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch= None):
 
     """
     Calcule les facteurs d’induction axiaux (a) et tangentiels (A)
@@ -42,9 +39,8 @@ def compute_induction_factors( u_0, cst_pitch,hub_radius, Rtot, n_points, beta_d
 
         while np.abs(a - a_new) > 1e-2 or np.abs(A - A_new) > 1e-2 :
 
-            phi = np.arctan((u_0 *(1+a))/ ((1-A)*(omega * r)))
+            phi = np.arctan2((v *(1+a)), ((1-A)*(omega * r)))
             sigma = B * c / (2 * np.pi * r)
-
 
             alpha = beta - phi 
 
@@ -56,9 +52,19 @@ def compute_induction_factors( u_0, cst_pitch,hub_radius, Rtot, n_points, beta_d
             Cn = Cl * np.cos(phi) + Cd * np.sin(phi)
             Ct = Cl * np.sin(phi) - Cd * np.cos(phi)
 
+            den_A = 2 * np.sin(2*phi)
+            den_a = 2 * (1 - np.cos(2*phi))
 
-            a_new = (sigma * Cn * (1 + a)) / (2 * (1 - np.cos(2*phi)))
-            A_new = (sigma * Ct * (1 - A)) / (2 * np.sin(2*phi))
+            # Si l'un des deux dénominateurs est trop petit -> on abandonne proprement ce rayon
+            if abs(den_A) < 1e-6 or abs(den_a) < 1e-6:
+                a_new = np.nan
+                A_new = np.nan
+                break  # on sort de la boucle "while" proprement
+            else:
+                A_new = (sigma * Ct * (1 - A)) / den_A
+                a_new = (sigma * Cn * (1 + a)) / den_a
+
+
 
 
             a = (1-w)*a + w*a_new
@@ -69,10 +75,16 @@ def compute_induction_factors( u_0, cst_pitch,hub_radius, Rtot, n_points, beta_d
 
     return R, np.array(solutions_a), np.array(solutions_A)
 
+
 def Thrust(R, solutions_a, v, rho):
     """
     Calcule la poussée totale exercée par l’hélice ou la turbine.
     """
+    #a_vec = np.asarray(solutions_a, float)
+    #mask = np.isfinite(a_vec)
+    #vals = 4*np.pi*R[mask]*rho*(v[mask]**2) * a_vec[mask] * (1.0 + a_vec[mask])
+
+    
     vals =4 * np.pi * R * rho * v**2 * solutions_a * (1 + solutions_a)
     T_r = cumulative_trapezoid(vals, R, initial=0.0) 
     T_total = np.trapz(vals, R)
@@ -95,28 +107,29 @@ def mechanical_power(Q_total, omega):
     return P_mech
 
 
-def K_t(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+def K_t(n , cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de poussée K_t.
     """
     K_t_values = []
-    for v in np.linspace(0, Vmax, n_points):
-        J = v / (n * 2 * Rtot)
+    for J in np.linspace(1e-3,0.5, n_points):
+        v = J * (n * 2 * Rtot)
+
         R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
         
-        T_r, T_total = Thrust(R, a_factors, v, rho)
+        _, T_total = Thrust(R, a_factors, v, rho)
         K_t = T_total / (rho * n**2 * (2 * Rtot)**4)
         K_t_values.append((K_t, J))
         
     return np.array(K_t_values)
 
-def K_q(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+def K_q(n , cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de couple K_q.
     """
     K_q_values = []
-    for v in np.linspace(0, Vmax, n_points):
-        J = v / (n * 2 * Rtot)
+    for J in np.linspace(1e-3, 0.5, n_points):
+        v = J * (n * 2 * Rtot)
         R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
 
         Q_r, Q_total = torque(R, A_factors, a_factors,v, rho, omega)
@@ -127,15 +140,15 @@ def K_q(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega
 
 
 
-def K_p(n , Vmax, cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+def K_p(n , cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de puissance K_p.
     """
     K_p_values = []
-    for v in np.linspace(0, Vmax, n_points):
-        J = v / (n * 2 * Rtot)
-        R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
-        Q_r, Q_total = torque(R, A_factors, a_factors, v, rho, omega)
+    for J in np.linspace(1e-3, 0.5, n_points):
+        v = J * (n * 2 * Rtot)
+        R, a_factors, A_factors = compute_induction_factors(v , cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+        _, Q_total = torque(R, A_factors, a_factors, v, rho, omega)
 
         P_mech = mechanical_power(Q_total, omega)
         K_p = P_mech / (rho * n**3 * (2 * Rtot)**5)
