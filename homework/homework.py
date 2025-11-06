@@ -8,72 +8,76 @@ import naca16_509_m06_clcd as naca
 import stdatm as sa
 
 
-def compute_induction_factors( v, cst_pitch,hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch= None):
-
-    """
-    Calcule les facteurs d’induction axiaux (a) et tangentiels (A)
-    le long du rayon d’une hélice ou turbine à partir du modèle BEM simple ok ok .
-    """
+def compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     R = np.linspace(hub_radius, Rtot, n_points)
-
-
-    solutions_a = []
-    solutions_A = []
-
-    a = 0.3
-    A = 0.01
+    a_list, A_list = [], []
 
     for r in R:
+        # --- beta local ---
         if cst_pitch:
             beta = np.radians(beta_deg)
         else:
             if beta_pitch is None:
-                raise ValueError("beta_pitch must be provided when cst_pitch is False") 
+                raise ValueError("beta_pitch must be provided when cst_pitch is False")
             dbeta = np.deg2rad(beta_pitch) - np.deg2rad(beta_deg)
-            p_ref_0 = 2 * np.pi * 0.75 * Rtot * np.tan( np.radians(beta_deg))
-            beta = np.arctan( p_ref_0 / (2 * np.pi * r) ) + dbeta
+            p_ref_0 = 2*np.pi*0.75*Rtot*np.tan(np.radians(beta_deg))
+            beta = np.arctan(p_ref_0 / (2*np.pi*r)) + dbeta
 
-        a_new, A_new = 10, 10
+        a, A = 0.1, 0.0
+        max_iter = 200
+        tol = 1e-3
+        converged = False
 
+        for _ in range(max_iter):
+            Vax  = v * (1 + a)
+            Vtan = omega * r * (1 - A)
+            if Vtan <= 1e-8:
+                a, A = np.nan, np.nan
+                break
 
-
-        while np.abs(a - a_new) > 1e-2 or np.abs(A - A_new) > 1e-2 :
-
-            phi = np.arctan2((v *(1+a)), ((1-A)*(omega * r)))
-            sigma = B * c / (2 * np.pi * r)
-
-            alpha = beta - phi 
-
-            Cl, Cd, flag = naca.naca16_509_m06(alpha)
-            #Cl = 2 * np.pi * alpha  # Lift coefficient (linear approximation)
-            #Cd = 0
-
-
-            Cn = Cl * np.cos(phi) + Cd * np.sin(phi)
-            Ct = Cl * np.sin(phi) - Cd * np.cos(phi)
-
+            phi = np.arctan2(Vax, Vtan)
             den_A = 2 * np.sin(2*phi)
             den_a = 2 * (1 - np.cos(2*phi))
+            if abs(den_A) < 1e-8 or abs(den_a) < 1e-8:
+                a, A = np.nan, np.nan
+                break
 
-            # Si l'un des deux dénominateurs est trop petit -> on abandonne proprement ce rayon
-            if abs(den_A) < 1e-6 or abs(den_a) < 1e-6:
-                a_new = np.nan
-                A_new = np.nan
-                break  # on sort de la boucle "while" proprement
-            else:
-                A_new = (sigma * Ct * (1 - A)) / den_A
-                a_new = (sigma * Cn * (1 + a)) / den_a
+            sigma = B * c / (2*np.pi*r)
+            alpha = beta - phi
+            Cl, Cd, _ = naca.naca16_509_m06(alpha)
+            #if not np.isfinite(Cl) or not np.isfinite(Cd):
+            #   Cl = 2*np.pi*np.clip(alpha, -0.3, 0.3)
+            #   Cd = 0.01 + 0.02*(Cl**2)
 
+            Cn = Cl*np.cos(phi) - Cd*np.sin(phi)
+            Ct = Cl*np.sin(phi) + Cd*np.cos(phi)
 
+            A_new = (sigma * Ct * (1 - A)) / den_A
+            a_new = (sigma * Cn * (1 + a)) / den_a
 
+            if not np.isfinite(a_new) or not np.isfinite(A_new):
+                a, A = np.nan, np.nan
+                break
+            a_new = np.clip(a_new, -0.5, 1.0)
+            A_new = np.clip(A_new, -0.5, 1.0)
 
-            a = (1-w)*a + w*a_new
-            A = (1-w)*A + w*A_new
+            a_next = (1 - w)*a + w*a_new
+            A_next = (1 - w)*A + w*A_new
 
-        solutions_a.append(a)
-        solutions_A.append(A)
+            if (abs(a_next - a) < tol) and (abs(A_next - A) < tol):
+                a, A = a_next, A_next
+                converged = True
+                break
+            a, A = a_next, A_next
 
-    return R, np.array(solutions_a), np.array(solutions_A)
+        if not converged and np.isfinite(a) and np.isfinite(A):
+            a, A = np.nan, np.nan
+
+        a_list.append(a)
+        A_list.append(A)
+
+    return R, np.array(a_list), np.array(A_list)
+
 
 
 def Thrust(R, solutions_a, v, rho):
@@ -95,6 +99,7 @@ def torque(R, solutions_A, solutions_a,v, rho, omega):
     Calcule le couple total exercé par l’hélice ou la turbine.
     """
     vals =4 * np.pi * R**3 * rho * v * omega * solutions_A * (1 + solutions_a)
+
     Q_r = cumulative_trapezoid(vals, R, initial=0.0) 
     Q_total = np.trapz(vals, R)
     return Q_r,Q_total
@@ -104,16 +109,20 @@ def mechanical_power(Q_total, omega):
     Calcule la puissance mécanique fournie par l’hélice ou la turbine.
     """
     P_mech = Q_total * omega
+
     return P_mech
 
 
-def K_t(n , cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+def K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de poussée K_t.
     """
+    n = omega / (2*np.pi)
     K_t_values = []
-    for J in np.linspace(1e-3,0.5, n_points):
-        v = J * (n * 2 * Rtot)
+    for J in np.linspace(1e-3,5, n_points):
+        #v = J * (n * 2 * Rtot)
+        v = J*n*2*Rtot
+
 
         R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
         
@@ -123,13 +132,14 @@ def K_t(n , cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c
         
     return np.array(K_t_values)
 
-def K_q(n , cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+def K_q(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de couple K_q.
     """
+    n = omega / (2*np.pi)
     K_q_values = []
-    for J in np.linspace(1e-3, 0.5, n_points):
-        v = J * (n * 2 * Rtot)
+    for J in np.linspace(1e-3,5, n_points):
+        v = J*n*2*Rtot
         R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
 
         Q_r, Q_total = torque(R, A_factors, a_factors,v, rho, omega)
@@ -140,19 +150,53 @@ def K_q(n , cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c
 
 
 
-def K_p(n , cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+def K_p(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
     """
     Calcule le coefficient de puissance K_p.
     """
-    K_p_values = []
-    for J in np.linspace(1e-3, 0.5, n_points):
-        v = J * (n * 2 * Rtot)
-        R, a_factors, A_factors = compute_induction_factors(v , cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
-        _, Q_total = torque(R, A_factors, a_factors, v, rho, omega)
+    n = omega / (2*np.pi)
+    # Utilise K_q et la relation K_p = 2π * K_q
+    K_q_values = K_q(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+    J = K_q_values[:, 1]
+    k_q = K_q_values[:, 0]
+    k_p = 2 * np.pi * np.abs(k_q)
+    
+    # Construit le tableau de résultats dans le même format que K_t et K_q
+    return np.array([(kp, j) for kp, j in zip(k_p, J)])
 
-        P_mech = mechanical_power(Q_total, omega)
-        K_p = P_mech / (rho * n**3 * (2 * Rtot)**5)
-        K_p_values.append((K_p, J))
+def eta_curve(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+    """
+    Calcule la courbe de rendement propulsif η_P(J) en évitant les divisions par zéro.
+    Retourne un tableau [J, η_P] propre, tronqué aux valeurs physiques.
+    """
+    n = omega / (2*np.pi)
 
-    return np.array(K_p_values)
+    # --- Calcul des coefficients ---
+    KT = K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+    KP = K_p(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+
+    J = KT[:, 1]
+    kT = KT[:, 0]
+    kP = KP[:, 0]
+
+    # --- Initialisation de η ---
+    eta = np.full_like(kT, np.nan, dtype=float)
+
+    # seuils robustes pour kP~0
+    eps_abs = 1e-4
+    eps_rel = 1e-3 * np.nanmax(np.abs(kP))
+    eps = max(eps_abs, eps_rel)
+
+    valid = (kT > 0) & (np.abs(kP) > eps)   # <<< ajoute kT>0
+
+    eta[valid] = J[valid] * kT[valid] / kP[valid]  # pas de signe moins avec kP>0
+
+    return np.column_stack([J[valid], eta[valid]])
+   
+
+
+        
+
+        
+
 

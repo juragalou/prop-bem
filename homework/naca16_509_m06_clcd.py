@@ -73,7 +73,7 @@ np.save('NACA16_509_m06_alpha_Cl_Cd.npy', np.array([alpha, CL, CD]))
 
 import matplotlib.pyplot as plt
 
-"""plt.plot(alpha,CL)
+plt.plot(alpha,CL)
 plt.plot(alpha,CD)
 plt.plot(alpha, interpolated)
-plt.show()"""
+plt.show()

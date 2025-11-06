@@ -26,22 +26,24 @@ def exo1():
     # --- Calcul des facteurs et des coefficients ---
 
     K_t_values = hw.K_t(
-        n=omega/(2*np.pi),  cst_pitch=True, rho=rho,
+        cst_pitch=True, rho=rho,
         Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
         beta_deg=beta_deg, w=w, omega=omega, B=B, c=c
     )
 
     K_q_values = hw.K_q(
-        n=omega/(2*np.pi),  cst_pitch=True, rho=rho,
+         cst_pitch=True, rho=rho,
         Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
         beta_deg=beta_deg, w=w, omega=omega, B=B, c=c
     )
 
     K_p_values = hw.K_p(
-        n= 20, cst_pitch=True, rho=rho,
+         cst_pitch=True, rho=rho,
         Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
         beta_deg=beta_deg, w=w, omega=omega, B=B, c=c
     )
+
+    eta_values = hw.eta_curve(True, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c)
 
 
     # --- Extraction et nettoyage des données ---
@@ -63,15 +65,14 @@ def exo1():
     mask_P = ~np.isnan(kP)
     J_P = J_P[mask_P]
     kP = kP[mask_P]
-    
-    #print(kP)
-    eta = J_P * kT / kP
 
-    neg_indices = np.where(eta < 0)[0]  # indices où kP < 0
-    if len(neg_indices) > 0:
-        idx = neg_indices[0]           # premier indice négatif
-        eta = eta[:idx]
-        J_P2 = J_P[:idx]
+    J_eta = eta_values[:,0]
+    eta = eta_values[:,1]
+    
+
+
+    
+
 
 
     
@@ -81,7 +82,7 @@ def exo1():
     #plt.plot(J_T, kT, marker='o', markersize=3, label=r"$k_T(J)$")
     #plt.plot(J_Q, kQ, marker='s', markersize=3, label=r"$k_Q(J)$")
     #plt.plot(J_P,kP, marker='^', markersize=3, label=r"$k_P(J)$")
-    plt.plot(J_P2, eta, marker='x', markersize=3, label=r"$\eta(J)$")
+    plt.plot(J_eta, eta, marker='x', markersize=3, label=r"$\eta(J)$")
 
     # --- Mise en forme du graphe ---
     plt.title("Exercice 1 — Coefficients $k_T(J)$ et $k_Q(J)$")
@@ -105,7 +106,7 @@ def exo2():
     beta_deg = 15
     w = 0.3
     rho = sa.stdatm(1000)[2]  # densité à 1000 m
-    n_points = 100
+    n_points = 50
     rpm_engine = 3000
     rpm_prop = 0.477 * rpm_engine
     n = rpm_prop / 60.0
@@ -113,7 +114,7 @@ def exo2():
 
     # --- Liste des beta_pitch à comparer ---
     beta_pitch_list = [10,20,30,40,50,60]
-    """
+    
     # --- Création du graphe ---
     plt.figure(figsize=(8,5))
 
@@ -123,7 +124,7 @@ def exo2():
         
         # Calcul de kT(J)
         K_t_values = hw.K_t(
-            n, cst_pitch=False, rho=rho,
+            cst_pitch=False, rho=rho,
             Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
             beta_deg=beta_deg, w=w, omega=omega, B=B, c=c,
             beta_pitch=beta_pitch
@@ -146,7 +147,7 @@ def exo2():
     plt.legend(title=r"$\beta_{pitch}$ (°)")
     plt.tight_layout()
     plt.show()
-
+    
     plt.figure(figsize=(8,5))
 
     for beta_pitch in beta_pitch_list:
@@ -154,7 +155,7 @@ def exo2():
       
         # Calcul de kT(J)
         K_p_values = hw.K_p(
-            n, cst_pitch=False, rho=rho,
+            cst_pitch=False, rho=rho,
             Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
             beta_deg=beta_deg, w=w, omega=omega, B=B, c=c,
             beta_pitch=beta_pitch
@@ -178,7 +179,7 @@ def exo2():
     plt.tight_layout()
     plt.show()
     
-
+    
     plt.figure(figsize=(8,5))
 
     for beta_pitch in beta_pitch_list:
@@ -187,7 +188,7 @@ def exo2():
       
         # Calcul de kT(J)
         K_q_values = hw.K_q(
-            n, cst_pitch=False, rho=rho,
+            cst_pitch=False, rho=rho,
             Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
             beta_deg=beta_deg, w=w, omega=omega, B=B, c=c,
             beta_pitch=beta_pitch
@@ -210,66 +211,35 @@ def exo2():
     plt.grid(True, alpha=0.4)
     plt.legend(title=r"$\beta_{pitch}$ (°)")
     plt.tight_layout()
-    plt.show()"""
-
+    plt.show()
+    
     # --- Tracé du rendement eta(J) pour chaque beta_pitch ---
 
+# --- Tracé du rendement eta(J) pour chaque beta_pitch ---
     plt.figure(figsize=(8,5))
-
     for beta_pitch in beta_pitch_list:
-            
-        K_t_values = hw.K_t(
-            n, cst_pitch=False, rho=rho,
+        # Calcul de kT et kP
+        eta_values = hw.eta_curve(cst_pitch=False, rho=rho,
             Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
             beta_deg=beta_deg, w=w, omega=omega, B=B, c=c,
             beta_pitch=beta_pitch
         )
 
-        # Nettoyage des NaN
-        J = K_t_values[:, 1]
-        kT = K_t_values[:, 0]
-        mask = np.isfinite(J) & np.isfinite(kT)
-        J, kT = J[mask], kT[mask]
-
-        # Calcul de kT(J)
-        K_p_values = hw.K_q(
-            n, cst_pitch=False, rho=rho,
-            Rtot=Rtot, hub_radius=hub_radius, n_points=n_points,
-            beta_deg=beta_deg, w=w, omega=omega, B=B, c=c,
-            beta_pitch=beta_pitch
-        )
-
-        # Nettoyage des NaN
-        J = K_p_values[:, 1]
-        kP = K_p_values[:, 0]
-        mask = np.isfinite(J) & np.isfinite(kP)
-        J, kP = J[mask], kP[mask]
-
-
-        eta = J* kT / kP
-
-        neg_indices = np.where(eta < 0)[0]  # indices où kP < 0
-        if len(neg_indices) > 0:
-            idx = neg_indices[0]           # premier indice négatif
-            eta = eta[:idx]
-            J = J[:idx]
+        # Extraction des valeurs
+        J = eta_values[:, 0]
+        eta = eta_values[:, 1]
 
 
 
+        plt.plot(J, eta, marker='x', markersize=3, label=fr"$\eta,\ \beta_{{pitch}}={beta_pitch}^\circ$")
 
-        # --- Tracé ---
-        plt.plot(J, eta, marker='x', markersize=3, label=r"$\eta(J)$")
-
-    # --- Mise en forme du graphe ---
-    plt.title("Hamilton-Standard — Coefficient $eta(J)$ pour différents $\\beta_{pitch}$")
+    plt.title("Hamilton-Standard — Rendement $\\eta(J)$ pour différents $\\beta_{pitch}$")
     plt.xlabel(r"$J = V / (nD)$")
-    plt.ylabel(r"$eta$")
+    plt.ylabel(r"$\eta$")
     plt.grid(True, alpha=0.4)
     plt.legend(title=r"$\beta_{pitch}$ (°)")
     plt.tight_layout()
     plt.show()
-    
-    
 
 
     
