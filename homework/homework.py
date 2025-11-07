@@ -46,8 +46,8 @@ def compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg
             alpha = beta - phi
             Cl, Cd, _ = naca.naca16_509_m06(alpha)
             #if not np.isfinite(Cl) or not np.isfinite(Cd):
-            #   Cl = 2*np.pi*np.clip(alpha, -0.3, 0.3)
-            #   Cd = 0.01 + 0.02*(Cl**2)
+            #Cl = 2*np.pi* alpha
+            #Cd = 0
 
             Cn = Cl*np.cos(phi) - Cd*np.sin(phi)
             Ct = Cl*np.sin(phi) + Cd*np.cos(phi)
@@ -119,7 +119,7 @@ def K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, be
     """
     n = omega / (2*np.pi)
     K_t_values = []
-    for J in np.linspace(1e-3,5, n_points):
+    for J in np.linspace(0,5, n_points):
         #v = J * (n * 2 * Rtot)
         v = J*n*2*Rtot
 
@@ -128,9 +128,6 @@ def K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, be
         
         _, T_total = Thrust(R, a_factors, v, rho)
         K_t = T_total / (rho * n**2 * (2 * Rtot)**4)
-        if K_t < -0.11:
-            break
-
         K_t_values.append((K_t, J))
         
     return np.array(K_t_values)
@@ -141,43 +138,48 @@ def K_q(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, be
     """
     n = omega / (2*np.pi)
     K_q_values = []
-    for J in np.linspace(1e-3,5, n_points):
+    for J in np.linspace(0,5, n_points):
         v = J*n*2*Rtot
         R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
 
         Q_r, Q_total = torque(R, A_factors, a_factors,v, rho, omega)
         K_q = Q_total / (rho * n**2 * (2 * Rtot)**5)
-
         K_q_values.append((K_q, J))
        
     return np.array(K_q_values)
 
 
 
-def K_p(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
-    """
-    Calcule le coefficient de puissance K_p.
-    """
+def K_p(cst_pitch, rho, Rtot, hub_radius, n_points,
+        beta_deg, w, omega, B, c, beta_pitch=None):
     n = omega / (2*np.pi)
-    # Utilise K_q et la relation K_p = 2π * K_q
-    K_q_values = K_q(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+    K_q_values = K_q(cst_pitch, rho, Rtot, hub_radius, n_points,
+                     beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
     J = K_q_values[:, 1]
     k_q = K_q_values[:, 0]
-    k_p = 2 * np.pi * np.abs(k_q)
-    
-    # Construit le tableau de résultats dans le même format que K_t et K_q
-    return np.array([(kp, j) for kp, j in zip(k_p, J)])
+
+    # on garde seulement les points vraiment propulsifs
+    valid = k_q > 0       # ou k_q >= 1e-5, à affiner
+    k_q = k_q[valid]
+    J   = J[valid]
+
+    k_p = 2 * np.pi * np.abs(k_q)   # ICI pas de abs
+
+    return np.column_stack([k_p, J])
 
 
-def eta_curve(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+def eta_curve(cst_pitch, rho, Rtot, hub_radius, n_points,
+              beta_deg, w, omega, B, c, beta_pitch=None):
     n = omega / (2*np.pi)
 
     # --- Calcul des coefficients ---
-    KT = K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
-    KP = K_p(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+    KT = K_t(cst_pitch, rho, Rtot, hub_radius, n_points,
+             beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+    KP = K_p(cst_pitch, rho, Rtot, hub_radius, n_points,
+             beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
 
-    J_KT, kT = KT[:,1], KT[:,0]
-    J_KP, kP = KP[:,1], KP[:,0]
+    J_KT, kT = KT[:, 1], KT[:, 0]
+    J_KP, kP = KP[:, 1], KP[:, 0]
 
     # --- Interpolation de kP sur la grille de J_KT ---
     kP_interp = np.interp(J_KT, J_KP, kP, left=np.nan, right=np.nan)
@@ -188,14 +190,14 @@ def eta_curve(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B,
     eps_rel = 1e-3 * np.nanmax(np.abs(kP_interp))
     eps = max(eps_abs, eps_rel)
 
-    valid = (kP_interp > -0.5) & (np.abs(kP_interp) > eps)
+    # 🔸 On garde seulement les points physiques
+    valid = (kT > 0) & (kP_interp > eps)
+
     eta[valid] = J_KT[valid] * kT[valid] / kP_interp[valid]
 
     # --- Nettoyage et retour ---
     valid_idx = np.isfinite(eta)
     return np.column_stack([J_KT[valid_idx], eta[valid_idx]])
 
-        
 
         
-

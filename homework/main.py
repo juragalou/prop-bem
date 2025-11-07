@@ -106,7 +106,7 @@ def exo2():
     beta_deg = 15
     w = 0.3
     rho = sa.stdatm(1000)[2]  # densité à 1000 m
-    n_points = 500
+    n_points = 50
     rpm_engine = 3000
     rpm_prop = 0.477 * rpm_engine
     n = rpm_prop / 60.0
@@ -114,7 +114,7 @@ def exo2():
 
     # --- Liste des beta_pitch à comparer ---
     beta_pitch_list = [10,20,30,40,50,60]
-    
+    """
     # --- Création du graphe ---
     plt.figure(figsize=(8,5))
 
@@ -212,7 +212,7 @@ def exo2():
     plt.legend(title=r"$\beta_{pitch}$ (°)")
     plt.tight_layout()
     plt.show()
-    
+    """
     # --- Tracé du rendement eta(J) pour chaque beta_pitch ---
 
 # --- Tracé du rendement eta(J) pour chaque beta_pitch ---
@@ -300,4 +300,4 @@ def exo3(z ,P_engine):
 
     return u0_sol , beta_sol 
 
-#print(exo2())
+print(exo2())
