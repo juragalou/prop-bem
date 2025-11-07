@@ -106,7 +106,7 @@ def exo2():
     beta_deg = 15
     w = 0.3
     rho = sa.stdatm(1000)[2]  # densité à 1000 m
-    n_points = 50
+    n_points = 500
     rpm_engine = 3000
     rpm_prop = 0.477 * rpm_engine
     n = rpm_prop / 60.0
@@ -164,7 +164,7 @@ def exo2():
         # Nettoyage des NaN
         J = K_p_values[:, 1]
         kP = K_p_values[:, 0]
-        mask = np.isfinite(J) & np.isfinite(kP)
+        mask = np.isfinite(J) & np.isfinite(kP) 
         J, kP = J[mask], kP[mask]
 
         # --- Tracé ---
@@ -300,4 +300,4 @@ def exo3(z ,P_engine):
 
     return u0_sol , beta_sol 
 
-print(exo2())
+#print(exo2())

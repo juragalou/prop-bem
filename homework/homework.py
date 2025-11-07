@@ -128,6 +128,9 @@ def K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, be
         
         _, T_total = Thrust(R, a_factors, v, rho)
         K_t = T_total / (rho * n**2 * (2 * Rtot)**4)
+        if K_t < -0.11:
+            break
+
         K_t_values.append((K_t, J))
         
     return np.array(K_t_values)
@@ -144,6 +147,7 @@ def K_q(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, be
 
         Q_r, Q_total = torque(R, A_factors, a_factors,v, rho, omega)
         K_q = Q_total / (rho * n**2 * (2 * Rtot)**5)
+
         K_q_values.append((K_q, J))
        
     return np.array(K_q_values)
@@ -164,39 +168,34 @@ def K_p(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, be
     # Construit le tableau de résultats dans le même format que K_t et K_q
     return np.array([(kp, j) for kp, j in zip(k_p, J)])
 
+
 def eta_curve(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
-    """
-    Calcule la courbe de rendement propulsif η_P(J) en évitant les divisions par zéro.
-    Retourne un tableau [J, η_P] propre, tronqué aux valeurs physiques.
-    """
     n = omega / (2*np.pi)
 
     # --- Calcul des coefficients ---
     KT = K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
     KP = K_p(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
 
-    J = KT[:, 1]
-    kT = KT[:, 0]
-    kP = KP[:, 0]
+    J_KT, kT = KT[:,1], KT[:,0]
+    J_KP, kP = KP[:,1], KP[:,0]
 
-    # --- Initialisation de η ---
+    # --- Interpolation de kP sur la grille de J_KT ---
+    kP_interp = np.interp(J_KT, J_KP, kP, left=np.nan, right=np.nan)
+
+    # --- Calcul du rendement ---
     eta = np.full_like(kT, np.nan, dtype=float)
-
-    # seuils robustes pour kP~0
     eps_abs = 1e-4
-    eps_rel = 1e-3 * np.nanmax(np.abs(kP))
+    eps_rel = 1e-3 * np.nanmax(np.abs(kP_interp))
     eps = max(eps_abs, eps_rel)
 
-    valid = (kT > 0) & (np.abs(kP) > eps)   # <<< ajoute kT>0
+    valid = (kP_interp > -0.5) & (np.abs(kP_interp) > eps)
+    eta[valid] = J_KT[valid] * kT[valid] / kP_interp[valid]
 
-    eta[valid] = J[valid] * kT[valid] / kP[valid]  # pas de signe moins avec kP>0
-
-    return np.column_stack([J[valid], eta[valid]])
-   
-
-
-        
+    # --- Nettoyage et retour ---
+    valid_idx = np.isfinite(eta)
+    return np.column_stack([J_KT[valid_idx], eta[valid_idx]])
 
         
 
+        
 
