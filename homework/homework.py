@@ -52,11 +52,11 @@ def compute_induction_factors(
             phi = np.arctan2(Vax, Vtan)
             sigma = B * c / (2*np.pi*r)
             alpha = beta - phi
-            #Cl, Cd, _ = naca.naca16_509_m06(alpha)
+            Cl, Cd, _ = naca.naca16_509_m06(alpha)
 
             # polar simplifiée: CL = 2π α, CD = 0
-            Cl = 2*np.pi*alpha
-            Cd = 0.0
+            #Cl = 2*np.pi*alpha
+            #Cd = 0.0
 
             Cn = Cl*np.cos(phi) - Cd*np.sin(phi)
             Ct = Cl*np.sin(phi) + Cd*np.cos(phi)
@@ -249,4 +249,3 @@ def save_results(results, filename="BEM_results.csv", folder="results"):
     # Sauvegarde
     df.to_csv(filepath, index=False)
     print(f"✅ Résultats sauvegardés dans : {filepath}")
-

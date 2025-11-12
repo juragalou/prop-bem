@@ -2,6 +2,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import homework as hw
 import stdatm as sa
+import os
+import pandas as pd
 
 rho = 1.225
 w   = 0.3
@@ -257,6 +259,9 @@ def exo2():
     plt.show()
 
 
+
+
+
     
 
 
@@ -264,115 +269,223 @@ def exo2():
 
 
 #if EXERCICE == 3:
-def exo3(z ,P_engine):
+def exo3(Z, P_engine_bhp):
+    """
+    Params:
+      Z : altitude en ft
+      P_engine : puissance moteur en bhp
 
+    Trouve (u0, beta_pitch) tels que :
+      1) T(u0,beta) = D(u0) + M g sin(theta)
+      2) P_mech(u0,beta) = P_engine
+    en s'appuyant sur homework.compute_induction_factors et homework.compute_forces.
+    P_engine attendu en [W].
+    """
+    import numpy as np
+    from scipy.optimize import fsolve
+    import homework as hw
+    import stdatm as sa
 
-    Rtot = 3.4 / 2
-    hub_radius = 0.45 / 2
-    B = 4
-    c = 0.25
-    beta_deg = 15
-    w = 0.3
-    omega = 2 * np.pi * 3000/60 
-    n_points = 100
-    rho = sa.stdatm(z)[2] 
-    M = 8430 * 0.45359237    #[Kg]
-    A_wing = 21.83 #[m^2]
-    C_D0 = 0.0163 
-    g = 9.81 #[m/s^2]
-    e = 0.8
-    b = 11.28 #[m]
-    theta = np.deg2rad(5)
-    AR = b**2/A_wing
-    K = 1/(np.pi * AR * e)
+    # --- Paramètres prop / avion ---
+    Rtot       = 3.4 / 2          # [m];s
+    hub_radius = 0.45 / 2         # [m]
+    gear_ratio = 0.477
+    B          = 4
+    c          = 0.25             # [m]
+    beta_deg   = 15               # [deg] (pas de référence, pour le profil)
+    w          = 0.3              # relaxation itérative BEM
+    omega      = 2 * np.pi * (3000 * gear_ratio / 60)  # [rad/s]
+    n_points   = 100
+    z = Z * 0.3048  # altitude en m
+    P_engine_W = P_engine_bhp * 745.7
 
+    rho     = sa.stdatm(z)[2]
+    M       = 8430 * 0.45359237   # [kg]
+    A_wing  = 21.83               # [m^2]
+    C_D0    = 0.0163
+    g       = 9.81                # [m/s^2]
+    e       = 0.8
+    b       = 11.28               # [m]
+    theta   = 0 #np.deg2rad(5)
+    AR      = b**2 / A_wing
+    K       = 1.0 / (np.pi * AR * e)
 
-    def power(u_0, beta_pitch):
-        R, a_factors, A_factors = hw.compute_induction_factors(u_0=u_0, cst_pitch=False, hub_radius=hub_radius, Rtot=Rtot,n_points=n_points, beta_deg=beta_deg, w=w, omega=omega, B=B, c=c, beta_pitch= beta_pitch)
-        D = 0.5 * rho  * u_0 **2 * A_wing * ( C_D0 + K* ((M*g*np.cos(theta))/(0.5*rho * u_0**2*A_wing))**2)
-        _,T = hw.Thrust(R, a_factors, u_0, rho)
-        _,Q = hw.torque(R, A_factors, a_factors,u_0,rho, omega )
-        P_mech = hw.mechanical_power(Q, omega)
+    def power(u_0, beta_pitch_deg):
+        # Facteurs d'induction (attention: l'argument s'appelle v dans homework.py)
+        R, a_factors, A_factors = hw.compute_induction_factors(
+            v=u_0,
+            cst_pitch=False,
+            hub_radius=hub_radius,
+            Rtot=Rtot,
+            n_points=n_points,
+            beta_deg=beta_deg,
+            w=w,
+            omega=omega,
+            B=B,
+            c=c,
+            beta_pitch=beta_pitch_deg
+        )
 
-        return T, D, P_mech
+        # Poussée / Couple / Puissance à partir des facteurs
+        # compute_forces retourne : T_r, Q_r, T_total, Q_total, P_mech
+        _, _, T_total, Q_total, P_mech = hw.compute_forces(
+            R, a_factors, A_factors, u_0, rho, omega
+        )
 
+        # Traînée avion (parasit + induite)
+        D = 0.5 * rho * u_0**2 * A_wing * (
+            C_D0 + K * ((M * g * np.cos(theta)) / (0.5 * rho * u_0**2 * A_wing))**2
+        )
 
-    def equation(x):
-        u_0, beta_pitch = x
+        return T_total, D, P_mech
+
+    def equations(x):
+        u_0, beta_pitch = x  # u_0 [m/s], beta_pitch [deg]
         T, D, P_mech = power(u_0, beta_pitch)
-        equ1 = T - (D + M * g * np.sin(theta))
-        equ2 = P_engine - P_mech
+        eq1 = T - (D + M * g * np.sin(theta))
+        eq2 = P_engine_W - P_mech
+        return [eq1, eq2]
 
-        return[equ1,equ2]
+    # Point de départ raisonnable
+    x0 = [200.0, 40.0]  # u0 ~ 100 m/s, beta_pitch ~ 20 deg
 
-    sol, infodict, ier, msg= fsolve(equation ,x0 = [100.0, 20.0], full_output = True)
+    sol, info, ier, msg = fsolve(equations, x0=x0, full_output=True)
     if ier != 1:
-        print("FSOLVE n'a pas convergé:", msg)
+        print("⚠️ FSOLVE n'a pas convergé :", msg)
+
     u0_sol, beta_sol = sol
 
-    # sanity check
+    # Sanity check / log
     T, D, P_mech = power(u0_sol, beta_sol)
     print(f"u0 = {u0_sol:.2f} m/s | beta = {beta_sol:.2f}°")
     print(f"T = {T:.0f} N | D + Mg sinθ = {(D + M*g*np.sin(theta)):.0f} N")
-    print(f"P_mech = {P_mech/1e3:.1f} kW | P_engine = {P_engine/1e3:.1f} kW")
+    print(f"P_mech = {P_mech/1e3:.1f} kW | P_engine = {P_engine_W/1e3:.1f} kW")
 
-    return u0_sol , beta_sol 
+    return float(u0_sol), float(beta_sol)
 
 
 
-def choose_pitch_and_performance(rpm_engine=3000, Mach=0.5, alt_ft=20000.0,
-                                 gear_ratio=0.477, beta_pitch_list=(10,20,30,40,50,60),
-                                 Rtot=3.4/2, hub_radius=0.45/2,
-                                 B=4, c=0.25, beta_deg=15, w=0.3):
-    # --- Atmosphère & vitesse ---
-    z = alt_ft * 0.3048
-    T, P, rho, a = sa.stdatm(z)   # si ta stdatm ne renvoie pas 'a', calcule-le: a = np.sqrt(1.4*287.05*T)
-    V = Mach * a
 
-    # --- Régime hélice ---
-    n = gear_ratio * rpm_engine / 60.0
-    omega = 2*np.pi*n
-    D = 2*Rtot
-    J_flight = V / (n*D)
 
-    # --- Choix du pas: maximise eta(J_flight) ---
-    best_eta = -np.inf
-    best_beta = None
-    for beta_pitch in beta_pitch_list:
-        curve = hw.eta_curve(False, rho, Rtot, hub_radius, 80, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
-        if curve.size == 0:
-            continue
-        Jc, etac = curve[:,0], curve[:,1]
-        # on ne garde que la zone autour de J_flight
-        if (J_flight < Jc.min()) or (J_flight > Jc.max()):
-            continue
-        eta_at_J = np.interp(J_flight, Jc, etac)
-        if np.isfinite(eta_at_J) and eta_at_J > best_eta:
-            best_eta = eta_at_J
-            best_beta = beta_pitch
+def beta_pitch_optimal(
+    Z, M,
+    rpm_engine=5000,
+    gear_ratio=0.477,
+    Rtot=3.4/2,                  # m (diamètre 3.4 m → rayon 1.7 m)
+    results_dir="results",       # CSV attendus: results/beta{10|20|...}.csv
+    beta_pitch_list=(10,20,30,40,50,60),
+    require_eta_positive=True,   # ignorer les points non propulsifs (eta<0)
+    enforce_power=True           # respecter la contrainte P_mech <= P_engine
+):
+    """
+    Choisit le beta_pitch qui maximise eta(J) au point de vol (z,M),
+    en lisant les fichiers déjà calculés dans `results/`.
 
-    if best_beta is None:
-        raise RuntimeError(f"J_flight={J_flight:.2f} est hors des courbes; augmente la plage J ou la liste des pas.")
+    Retourne un dict avec le pas choisi et les valeurs interpolées à J.
+    """
+    # --- 1) Vitesse de vol et J ---
 
-    # --- Perf à ce réglage (T, Q, P) ---
-    R, a_f, A_f, phi, lam1, lam2 = hw.compute_induction_factors(
-        v=V, cst_pitch=False, hub_radius=hub_radius, Rtot=Rtot, n_points=100,
-        beta_deg=beta_deg, w=w, omega=omega, B=B, c=c, beta_pitch=best_beta
-    )
-    _, _, _, _, T_total, Q_total = hw.thrust_torque_lock(R, a_f, A_f, phi, lam1, lam2, v=V, rho=rho, B=B, c=c)
-    P_mech = Q_total * omega
-    eta_check = (T_total * V) / P_mech if P_mech > 1e-9 else np.nan
+    z = Z * 0.3048
+    P, T_atm, rho = sa.stdatm(z)[:3]
+    a = (rho * 287.05 * T_atm) ** 0.5              # vitesse du son [m/s]
+    V = M * a                                      # vitesse avion [m/s]
+    n = (gear_ratio * rpm_engine) / 60.0           # tr/s de l'hélice
+    D = 2.0 * Rtot
+    if n*D <= 1e-12:
+        raise ValueError("n*D ≈ 0 : vérifie gear_ratio, rpm_engine et Rtot.")
+    J = V / (n * D)
 
-    return {
-        "beta_pitch_deg": best_beta,
-        "eta_at_J": best_eta,
-        "J_flight": J_flight,
-        "V": V, "rho": rho, "n": n, "omega": omega,
-        "T": T_total, "Q": Q_total, "P_mech": P_mech, "eta_check": eta_check
+
+
+    best = {
+        "beta_pitch_deg": None,
+        "eta": -np.inf,
+        "T": np.nan,
+        "Q": np.nan,
+        "P_mech": np.nan,
+        "J": float(J),
+        "V": float(V),
+        "rho": float(rho),
+        "n": float(n),
+        "omega": float(2*np.pi*n),
     }
 
+    # --- 2) Boucle sur les fichiers results/betaXX.csv ---
+    for beta in beta_pitch_list:
+        path = os.path.join(results_dir, f"beta{beta}.csv")
+        if not os.path.exists(path):
+            continue
 
-print(choose_pitch_and_performance(rpm_engine=3000, Mach=0.5, alt_ft=20000.0,
-                                 gear_ratio=0.477, beta_pitch_list=(10,20,30,40,50,60),
-                                 Rtot=3.4/2, hub_radius=0.45/2,
-                                 B=4, c=0.25, beta_deg=15, w=0.3))
+        df = pd.read_csv(path)
+
+        # Colonnes attendues : J, eta, (optionnellement T, Q, P_mech)
+        if "J" not in df or "eta" not in df:
+            continue
+
+        J_vec   = df["J"].to_numpy(float)
+        eta_vec = df["eta"].to_numpy(float)
+
+        # filtre physique
+        mask = np.isfinite(J_vec) & np.isfinite(eta_vec)
+        if require_eta_positive:
+            mask &= (eta_vec >= 0.0)
+        if not np.any(mask):
+            continue
+
+        J_ok   = J_vec[mask]
+        eta_ok = eta_vec[mask]
+
+        # on ne prend que si J est couvert par la plage du CSV
+        if not (J_ok.min() <= J <= J_ok.max()):
+            continue
+
+        # --- 3) Interpolation à J ---
+        eta_J = float(np.interp(J, J_ok, eta_ok))
+
+        # T, Q, P_mech si dispo
+        T_J = Q_J = P_J = np.nan
+        if "T" in df:
+            T_J = float(np.interp(J, J_ok, df["T"].to_numpy(float)[mask]))
+        if "Q" in df:
+            Q_J = float(np.interp(J, J_ok, df["Q"].to_numpy(float)[mask]))
+        if "P_mech" in df:
+            P_J = float(np.interp(J, J_ok, df["P_mech"].to_numpy(float)[mask]))
+
+        
+
+    
+
+        # --- 4) Maximisation de eta ---
+        if np.isfinite(eta_J) and (eta_J > best["eta"]):
+            best.update({
+                "beta_pitch_deg": int(beta),
+                "eta": eta_J,
+                "T": T_J,
+                "Q": Q_J,
+                "P_mech": P_J,
+            })
+
+    if best["beta_pitch_deg"] is None:
+        raise RuntimeError(
+            f"Aucun fichier dans '{results_dir}' ne couvre J={J:.2f} "
+            f"(ou tous dépassent P_engine si enforce_power=True)."
+        )
+    print("z =", Z)
+    
+
+    return best
+
+# print(exo2())
+
+# print(beta_pitch_optimal(
+#     5000,  0.5 ,
+#     rpm_engine=3000,
+#     gear_ratio=0.477,
+#     Rtot=3.4/2,                  # m (diamètre 3.4 m → rayon 1.7 m)
+#     results_dir="results",       # CSV attendus: results/beta{10|20|...}.csv
+#     beta_pitch_list=(10,20,30,40,50,60),
+#     require_eta_positive=True,   # ignorer les points non propulsifs (eta<0)
+#     enforce_power=True           # respecter la contrainte P_mech <= P_engine
+# ))
+
+print(exo3(5000, 1450))
