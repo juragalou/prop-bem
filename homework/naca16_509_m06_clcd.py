@@ -76,4 +76,3 @@ import matplotlib.pyplot as plt
 plt.plot(alpha,CL)
 plt.plot(alpha,CD)
 plt.plot(alpha, interpolated)
-plt.show()
