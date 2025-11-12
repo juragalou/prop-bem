@@ -7,12 +7,23 @@ import numpy as np
 import naca16_509_m06_clcd as naca
 import stdatm as sa
 
-
-def compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+def compute_induction_factors(
+    v, cst_pitch, hub_radius, Rtot, n_points,
+    beta_deg, w, omega, B, c, beta_pitch=None,
+    a_init=None, A_init=None
+):
+    
+    n = omega / (2 * np.pi)
+    D = 2 * Rtot
     R = np.linspace(hub_radius, Rtot, n_points)
     a_list, A_list = [], []
 
-    for r in R:
+    if a_init is None:
+        a_init = np.full(n_points, 0.1)
+    if A_init is None:
+        A_init = np.full(n_points, 0.0)
+
+    for j, r in enumerate(R):
         # --- beta local ---
         if cst_pitch:
             beta = np.radians(beta_deg)
@@ -23,7 +34,10 @@ def compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg
             p_ref_0 = 2*np.pi*0.75*Rtot*np.tan(np.radians(beta_deg))
             beta = np.arctan(p_ref_0 / (2*np.pi*r)) + dbeta
 
-        a, A = 0.1, 0.0
+        # conditions initiales (si NaN -> valeurs par défaut)
+        a = a_init[j] if np.isfinite(a_init[j]) else 0.1
+        A = A_init[j] if np.isfinite(A_init[j]) else 0.0
+
         max_iter = 200
         tol = 1e-3
         converged = False
@@ -36,42 +50,40 @@ def compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg
                 break
 
             phi = np.arctan2(Vax, Vtan)
-            den_A = 2 * np.sin(2*phi)
-            den_a = 2 * (1 - np.cos(2*phi))
-            if abs(den_A) < 1e-8 or abs(den_a) < 1e-8:
-                a, A = np.nan, np.nan
-                break
-
             sigma = B * c / (2*np.pi*r)
             alpha = beta - phi
-            Cl, Cd, _ = naca.naca16_509_m06(alpha)
-            #if not np.isfinite(Cl) or not np.isfinite(Cd):
-            #   Cl = 2*np.pi*np.clip(alpha, -0.3, 0.3)
-            #   Cd = 0.01 + 0.02*(Cl**2)
+            #Cl, Cd, _ = naca.naca16_509_m06(alpha)
+
+            # polar simplifiée: CL = 2π α, CD = 0
+            Cl = 2*np.pi*alpha
+            Cd = 0.0
 
             Cn = Cl*np.cos(phi) - Cd*np.sin(phi)
             Ct = Cl*np.sin(phi) + Cd*np.cos(phi)
 
-            A_new = (sigma * Ct * (1 - A)) / den_A
-            a_new = (sigma * Cn * (1 + a)) / den_a
+            den_a = 2 * (1 - np.cos(2*phi))
+            den_A = 2 * np.sin(2*phi)
 
-            if not np.isfinite(a_new) or not np.isfinite(A_new):
-                a, A = np.nan, np.nan
-                break
-            a_new = np.clip(a_new, -0.5, 1.0)
-            A_new = np.clip(A_new, -0.5, 1.0)
+            den_a = np.sign(den_a) * max(abs(den_a), 1e-8)
+            den_A = np.sign(den_A) * max(abs(den_A), 1e-8)
+
+            a_new = (sigma * Cn * (1 + a)) / den_a
+            A_new = (sigma * Ct * (1 - A)) / den_A
 
             a_next = (1 - w)*a + w*a_new
             A_next = (1 - w)*A + w*A_new
 
-            if (abs(a_next - a) < tol) and (abs(A_next - A) < tol):
+            if abs(a_next - a) < tol and abs(A_next - A) < tol:
                 a, A = a_next, A_next
                 converged = True
                 break
+
             a, A = a_next, A_next
 
-        if not converged and np.isfinite(a) and np.isfinite(A):
-            a, A = np.nan, np.nan
+        if not converged:
+            a, A = 0.0, 0.0
+            
+
 
         a_list.append(a)
         A_list.append(A)
@@ -79,124 +91,162 @@ def compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg
     return R, np.array(a_list), np.array(A_list)
 
 
+def compute_forces(R, a_factors, A_factors, v, rho, omega):
+    """
+    Calcule en une seule fois :
+      - la distribution radiale de poussée T_r(R)
+      - la distribution radiale de couple Q_r(R)
+      - la poussée totale T_total [N]
+      - le couple total Q_total [N·m]
+      - la puissance mécanique P_mech [W]
+    à partir des facteurs d'induction a(r), A(r).
+    """
+    # Poussée élémentaire (même formule que dans Thrust)
+    vals_T = 4 * np.pi * R * rho * v**2 * a_factors * (1 + a_factors)
+    T_r = cumulative_trapezoid(vals_T, R, initial=0.0)
+    T_total = np.trapz(vals_T, R)
 
-def Thrust(R, solutions_a, v, rho):
-    """
-    Calcule la poussée totale exercée par l’hélice ou la turbine.
-    """
-    #a_vec = np.asarray(solutions_a, float)
-    #mask = np.isfinite(a_vec)
-    #vals = 4*np.pi*R[mask]*rho*(v[mask]**2) * a_vec[mask] * (1.0 + a_vec[mask])
+    # Couple élémentaire (même formule que dans torque)
+    vals_Q = 4 * np.pi * R**3 * rho * v * omega * A_factors * (1 + a_factors)
+    Q_r = cumulative_trapezoid(vals_Q, R, initial=0.0)
+    Q_total = np.trapz(vals_Q, R)
 
-    
-    vals =4 * np.pi * R * rho * v**2 * solutions_a * (1 + solutions_a)
-    T_r = cumulative_trapezoid(vals, R, initial=0.0) 
-    T_total = np.trapz(vals, R)
-    return T_r,T_total
-
-def torque(R, solutions_A, solutions_a,v, rho, omega):
-    """
-    Calcule le couple total exercé par l’hélice ou la turbine.
-    """
-    vals =4 * np.pi * R**3 * rho * v * omega * solutions_A * (1 + solutions_a)
-
-    Q_r = cumulative_trapezoid(vals, R, initial=0.0) 
-    Q_total = np.trapz(vals, R)
-    return Q_r,Q_total
-
-def mechanical_power(Q_total, omega):
-    """
-    Calcule la puissance mécanique fournie par l’hélice ou la turbine.
-    """
+    # Puissance mécanique
     P_mech = Q_total * omega
 
-    return P_mech
-
-
-def K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
+    return T_r, Q_r, T_total, Q_total, P_mech
+def compute_performance_curves(
+    cst_pitch,
+    rho,
+    Rtot,
+    hub_radius,
+    n_radial,          # n_points pour le rayon
+    beta_deg,
+    w,
+    omega,
+    B,
+    c,
+    beta_pitch=None,
+    J_min=0.0,
+    J_max=5.0,
+    n_J=50
+):
     """
-    Calcule le coefficient de poussée K_t.
+    Calcule en une seule fois, pour un range de J, les grandeurs suivantes :
+        - T(J)      : poussée totale [N]
+        - Q(J)      : couple total [N·m]
+        - P_mech(J) : puissance mécanique [W]
+        - K_T(J)    : coefficient de poussée
+        - K_Q(J)    : coefficient de couple
+        - K_P(J)    : coefficient de puissance
+        - eta(J)    : rendement propulsif
     """
-    n = omega / (2*np.pi)
-    K_t_values = []
-    for J in np.linspace(1e-3,5, n_points):
-        #v = J * (n * 2 * Rtot)
-        v = J*n*2*Rtot
 
+    n = omega / (2 * np.pi)
+    D = 2 * Rtot
 
-        R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
-        
-        _, T_total = Thrust(R, a_factors, v, rho)
-        K_t = T_total / (rho * n**2 * (2 * Rtot)**4)
-        K_t_values.append((K_t, J))
-        
-    return np.array(K_t_values)
+    # Discrétisation en J
+    J_array = np.linspace(J_min, J_max, n_J)
 
-def K_q(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
-    """
-    Calcule le coefficient de couple K_q.
-    """
-    n = omega / (2*np.pi)
-    K_q_values = []
-    for J in np.linspace(1e-3,5, n_points):
-        v = J*n*2*Rtot
-        R, a_factors, A_factors = compute_induction_factors(v, cst_pitch, hub_radius, Rtot, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
+    # Allocation des tableaux
+    T_array   = np.full_like(J_array, np.nan, dtype=float)
+    Q_array   = np.full_like(J_array, np.nan, dtype=float)
+    P_array   = np.full_like(J_array, np.nan, dtype=float)
+    KT_array  = np.full_like(J_array, np.nan, dtype=float)
+    KQ_array  = np.full_like(J_array, np.nan, dtype=float)
+    KP_array  = np.full_like(J_array, np.nan, dtype=float)
+    eta_array = np.full_like(J_array, np.nan, dtype=float)
 
-        Q_r, Q_total = torque(R, A_factors, a_factors,v, rho, omega)
-        K_q = Q_total / (rho * n**2 * (2 * Rtot)**5)
-        K_q_values.append((K_q, J))
-       
-    return np.array(K_q_values)
-
-
-
-def K_p(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
-    """
-    Calcule le coefficient de puissance K_p.
-    """
-    n = omega / (2*np.pi)
-    # Utilise K_q et la relation K_p = 2π * K_q
-    K_q_values = K_q(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
-    J = K_q_values[:, 1]
-    k_q = K_q_values[:, 0]
-    k_p = 2 * np.pi * np.abs(k_q)
-    
-    # Construit le tableau de résultats dans le même format que K_t et K_q
-    return np.array([(kp, j) for kp, j in zip(k_p, J)])
-
-def eta_curve(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=None):
-    """
-    Calcule la courbe de rendement propulsif η_P(J) en évitant les divisions par zéro.
-    Retourne un tableau [J, η_P] propre, tronqué aux valeurs physiques.
-    """
-    n = omega / (2*np.pi)
-
-    # --- Calcul des coefficients ---
-    KT = K_t(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
-    KP = K_p(cst_pitch, rho, Rtot, hub_radius, n_points, beta_deg, w, omega, B, c, beta_pitch=beta_pitch)
-
-    J = KT[:, 1]
-    kT = KT[:, 0]
-    kP = KP[:, 0]
-
-    # --- Initialisation de η ---
-    eta = np.full_like(kT, np.nan, dtype=float)
-
-    # seuils robustes pour kP~0
     eps_abs = 1e-4
-    eps_rel = 1e-3 * np.nanmax(np.abs(kP))
-    eps = max(eps_abs, eps_rel)
+    a_guess = None
+    A_guess = None
 
-    valid = (kT > 0) & (np.abs(kP) > eps)   # <<< ajoute kT>0
+    for i, J in enumerate(J_array):
+        v = J * n * D
 
-    eta[valid] = J[valid] * kT[valid] / kP[valid]  # pas de signe moins avec kP>0
+        R, a_factors, A_factors = compute_induction_factors(
+            v, cst_pitch, hub_radius, Rtot, n_radial,
+            beta_deg, w, omega, B, c,
+            beta_pitch=beta_pitch,
+            a_init=a_guess,
+            A_init=A_guess
+        )
 
-    return np.column_stack([J[valid], eta[valid]])
-   
+        # Si tout est NaN, on ne réutilise pas ces valeurs pour la suite
+        if (not np.isfinite(a_factors).any()) or (not np.isfinite(A_factors).any()):
+            a_guess = None
+            A_guess = None
+            continue
 
+        # Réutiliser la solution comme guess pour le prochain J
+        a_guess = a_factors.copy()
+        A_guess = A_factors.copy()
 
-        
+        # --- Forces + puissance ---
+        _, _, T_total, Q_total, P_mech = compute_forces(
+            R, a_factors, A_factors, v, rho, omega
+        )
 
-        
+        T_array[i] = T_total
+        Q_array[i] = Q_total
+        P_array[i] = P_mech
 
+        # --- Coefficients adimensionnels ---
+        KT = T_total / (rho * n**2 * D**4)
+        KQ = Q_total / (rho * n**2 * D**5)
+        KP = 2 * np.pi * KQ
+
+        KT_array[i] = KT
+        KQ_array[i] = KQ
+        KP_array[i] = KP
+
+        # --- Rendement ---
+        eps_rel = 1e-3 * max(abs(KP), 1e-12)
+        eps = max(eps_abs, eps_rel)
+
+        if (KP > eps) :
+            eta_array[i] = J * KT / KP
+        else:
+            eta_array[i] = np.nan
+
+    results = {
+        "J"      : J_array,
+        "T"      : T_array,
+        "Q"      : Q_array,
+        "P_mech" : P_array,
+        "KT"     : KT_array,
+        "KQ"     : KQ_array,
+        "KP"     : KP_array,
+        "eta"    : eta_array,
+    }
+
+    return results
+
+import pandas as pd
+import os
+
+def save_results(results, filename="BEM_results.csv", folder="results"):
+    """
+    Sauvegarde les résultats BEM dans un fichier CSV.
+    Si le dossier 'results/' n'existe pas, il est créé automatiquement.
+    """
+    # Créer le dossier si besoin
+    os.makedirs(folder, exist_ok=True)
+    filepath = os.path.join(folder, filename)
+
+    # Transformer le dictionnaire en DataFrame
+    df = pd.DataFrame({
+        "J": results["J"],
+        "KT": results["KT"],
+        "KQ": results["KQ"],
+        "KP": results["KP"],
+        "eta": results["eta"],
+        "T": results["T"],
+        "Q": results["Q"],
+        "P_mech": results["P_mech"]
+    })
+
+    # Sauvegarde
+    df.to_csv(filepath, index=False)
+    print(f"✅ Résultats sauvegardés dans : {filepath}")
 
