@@ -93,7 +93,7 @@ def exo2():
     c          = 0.25
     beta_deg   = 15
     w          = 0.3
-    rho        = sa.stdatm(1000)[2]  # densité à 1000 m
+    rho        = sa.stdatm(20000* 0.3048 )[2]  # densité à 1000 m
     n_points   = 50                  # points radiaux pour le BEM
     rpm_engine = 3000
     rpm_prop   = 0.477 * rpm_engine
@@ -260,16 +260,7 @@ def exo2():
 
 
 
-
-
-    
-
-
-    
-
-
-#if EXERCICE == 3:
-def exo3(Z, P_engine_bhp):
+def exo3(Z, P_engine_bhp, ROC):
     """
     Params:
       Z : altitude en ft
@@ -306,9 +297,11 @@ def exo3(Z, P_engine_bhp):
     g       = 9.81                # [m/s^2]
     e       = 0.8
     b       = 11.28               # [m]
-    theta   = 0 #np.deg2rad(5)
+    #theta   = 0 #np.deg2rad(5)
     AR      = b**2 / A_wing
     K       = 1.0 / (np.pi * AR * e)
+
+    uz = ROC * 0.3048 / 60  # Convert ft/min to m/s
 
     def power(u_0, beta_pitch_deg):
         # Facteurs d'induction (attention: l'argument s'appelle v dans homework.py)
@@ -328,26 +321,37 @@ def exo3(Z, P_engine_bhp):
 
         # Poussée / Couple / Puissance à partir des facteurs
         # compute_forces retourne : T_r, Q_r, T_total, Q_total, P_mech
+
+
         _, _, T_total, Q_total, P_mech = hw.compute_forces(
-            R, a_factors, A_factors, u_0, rho, omega
+            R, a_factors, A_factors,u_0, rho, omega
         )
 
+        theta = np.arcsin(uz / u_0)
+
+
         # Traînée avion (parasit + induite)
-        D = 0.5 * rho * u_0**2 * A_wing * (
+        D = 0.5 * rho *u_0**2 * A_wing * (
             C_D0 + K * ((M * g * np.cos(theta)) / (0.5 * rho * u_0**2 * A_wing))**2
         )
 
-        return T_total, D, P_mech
+        return T_total, D, P_mech, theta
 
     def equations(x):
         u_0, beta_pitch = x  # u_0 [m/s], beta_pitch [deg]
-        T, D, P_mech = power(u_0, beta_pitch)
+
+        if u_0 <= uz + 1e-6:
+            return [1e6, 1e6]
+        
+        T, D, P_mech, theta = power(u_0, beta_pitch)
         eq1 = T - (D + M * g * np.sin(theta))
         eq2 = P_engine_W - P_mech
         return [eq1, eq2]
 
     # Point de départ raisonnable
-    x0 = [200.0, 40.0]  # u0 ~ 100 m/s, beta_pitch ~ 20 deg
+    
+    x0 = [160, 40.0]
+ 
 
     sol, info, ier, msg = fsolve(equations, x0=x0, full_output=True)
     if ier != 1:
@@ -356,20 +360,100 @@ def exo3(Z, P_engine_bhp):
     u0_sol, beta_sol = sol
 
     # Sanity check / log
-    T, D, P_mech = power(u0_sol, beta_sol)
-    print(f"u0 = {u0_sol:.2f} m/s | beta = {beta_sol:.2f}°")
-    print(f"T = {T:.0f} N | D + Mg sinθ = {(D + M*g*np.sin(theta)):.0f} N")
-    print(f"P_mech = {P_mech/1e3:.1f} kW | P_engine = {P_engine_W/1e3:.1f} kW")
-
+    T, D, P_mech, theta = power(u0_sol, beta_sol)
+    print(f"u0 = {u0_sol:.2f} m/s | beta = {beta_sol:.2f}° | theta = {np.degrees(theta):.2f}° --> x0 = {x0}" )
     return float(u0_sol), float(beta_sol)
 
+def compute_climb_times():
+    alt_ft = [0, 5000, 10000, 13000, 17400, 20000, 26000, 30000, 35000, 40000]
+    roc_ftmin =        [3600, 3570, 3540, 3520, 2965, 2915, 2780, 2125, 1280, 450]
 
 
 
 
+    dt_list = []
+
+    for i in range(len(alt_ft) - 1):
+        # changement d'altitude (ft)
+        dh_ft = alt_ft[i+1] - alt_ft[i]
+
+        # ROC du segment (ft/min)
+        roc = roc_ftmin[i]
+
+        # Convert ROC en m/s
+        uz = roc * 0.3048 / 60.0
+
+        # Convert Δh en mètres
+        dh_m = dh_ft * 0.3048
+
+        # Temps pour ce segment
+        dt = dh_m / uz    # en secondes
+
+        dt_list.append(dt)
+
+    # Temps total
+    t_total = sum(dt_list)
+
+    return dt_list, t_total
+
+
+def compute_fuel_consumption():
+    dt_list, _ = compute_climb_times()
+    P_engine_bhp_list = [1500, 1510, 1525, 1510, 1320, 1310, 1260, 1075, 850, 630]
+    blower_modes = ["Low", "Low", "Low", "Low", "High", "High", "High", "High", "High", "High"]
+
+
+    
+
+    # Coefficients du tableau (gal/h et gal/(W·h))
+    C1_low  = -36.12
+    C2_low  = 1.785e-4
+    C1_high = -20.13
+    C2_high = 1.849e-4
+
+    # Densité de l’essence aviation (kg/L)
+    rho_fuel = 0.72       # typique avgas
+    gallon_to_liter = 3.78541
+
+    mf_segments = []
+
+    for i in range(len(dt_list)):
+        P_bhp = P_engine_bhp_list[i]
+        mode = blower_modes[i]
+
+        # Convertir puissance en W
+        P_engine_W = P_bhp * 745.7
+
+        # Coefficients
+        if mode.lower().startswith("low"):
+            C1, C2 = C1_low, C2_low
+        else:
+            C1, C2 = C1_high, C2_high
+
+        # Débit volumique de carburant (gal/h)
+        mdot_gal_h = C1 + C2 * P_engine_W
+
+        # Convertir en gal/s
+        mdot_gal_s = mdot_gal_h / 3600.0
+
+        # Volume consommé pendant Δt
+        V_gal = mdot_gal_s * dt_list[i]
+
+        # Convertir en masse
+        V_L = V_gal * gallon_to_liter          # L
+        m_f = V_L * rho_fuel                   # kg
+
+        mf_segments.append(m_f)
+
+    mf_total = sum(mf_segments)
+
+    return mf_segments, mf_total
+
+
+    
 def beta_pitch_optimal(
     Z, M,
-    rpm_engine=5000,
+    rpm_engine=3000,
     gear_ratio=0.477,
     Rtot=3.4/2,                  # m (diamètre 3.4 m → rayon 1.7 m)
     results_dir="results",       # CSV attendus: results/beta{10|20|...}.csv
@@ -475,17 +559,132 @@ def beta_pitch_optimal(
 
     return best
 
-# print(exo2())
 
-# print(beta_pitch_optimal(
-#     5000,  0.5 ,
-#     rpm_engine=3000,
-#     gear_ratio=0.477,
-#     Rtot=3.4/2,                  # m (diamètre 3.4 m → rayon 1.7 m)
-#     results_dir="results",       # CSV attendus: results/beta{10|20|...}.csv
-#     beta_pitch_list=(10,20,30,40,50,60),
-#     require_eta_positive=True,   # ignorer les points non propulsifs (eta<0)
-#     enforce_power=True           # respecter la contrainte P_mech <= P_engine
-# ))
 
-print(exo3(5000, 1450))
+
+
+"""
+=== Exercice 5.3 : TAKE_OFF ===
+
+"""
+def take_off():
+    A_wing  = 21.83               # [m^2]
+    M = 8430 * 0.45359237   # [kg]
+    rho = sa.stdatm(0)[2]
+    g       = 9.81                # [m/s^2]
+    V = 150 * 0.44704               # [m/s]
+
+    def lift_coefficient():
+        
+        Cl = M*g/(0.5*rho*V**2*A_wing)
+        return Cl
+    
+    def compute_blade_pitch(Z = 0, P_engine_bhp = 1400, ROC = 0):
+
+        import numpy as np
+        from scipy.optimize import fsolve
+        import homework as hw
+        import stdatm as sa
+
+        # --- Paramètres prop / avion ---
+        Rtot       = 3.4 / 2          # [m];s
+        hub_radius = 0.45 / 2         # [m]
+        gear_ratio = 0.477
+        B          = 4
+        c          = 0.25             # [m]
+        beta_deg   = 15               # [deg] (pas de référence, pour le profil)
+        w          = 0.3              # relaxation itérative BEM
+        omega      = 2 * np.pi * (3000 * gear_ratio / 60)  # [rad/s]
+        n_points   = 100
+        z = Z * 0.3048  # altitude en m
+        P_engine_W = P_engine_bhp * 745.7
+
+        rho     = sa.stdatm(z)[2]
+        M       = 8430 * 0.45359237   # [kg]
+        A_wing  = 21.83               # [m^2]
+        C_D0    = 0.0163
+        g       = 9.81                # [m/s^2]
+        e       = 0.8
+        b       = 11.28               # [m]
+        #theta   = 0 #np.deg2rad(5)
+        AR      = b**2 / A_wing
+        K       = 1.0 / (np.pi * AR * e)
+
+        uz = ROC * 0.3048 / 60  # Convert ft/min to m/s
+        u_0 = V
+
+        def power(beta_pitch_deg):
+            # Facteurs d'induction (attention: l'argument s'appelle v dans homework.py)
+            R, a_factors, A_factors = hw.compute_induction_factors(
+                v=u_0,
+                cst_pitch=False,
+                hub_radius=hub_radius,
+                Rtot=Rtot,
+                n_points=n_points,
+                beta_deg=beta_deg,
+                w=w,
+                omega=omega,
+                B=B,
+                c=c,
+                beta_pitch=beta_pitch_deg
+            )
+
+            # Poussée / Couple / Puissance à partir des facteurs
+            # compute_forces retourne : T_r, Q_r, T_total, Q_total, P_mech
+
+
+            _, _, T_total, Q_total, P_mech = hw.compute_forces(
+                R, a_factors, A_factors,u_0, rho, omega
+            )
+
+            theta = np.arcsin(uz / u_0)
+
+
+            # Traînée avion (parasit + induite)
+            D = 0.5 * rho *u_0**2 * A_wing * (
+                C_D0 + K * ((M * g * np.cos(theta)) / (0.5 * rho * u_0**2 * A_wing))**2
+            )
+
+            return T_total, D, P_mech, theta
+        
+        def equations(x):
+            beta_pitch = x[0] # u_0 [m/s], beta_pitch [deg]
+
+       
+            
+            T, D, P_mech, theta = power(beta_pitch)
+            eq2 = P_engine_W - P_mech
+            return [eq2]
+
+        # Point de départ raisonnable
+        
+        x0 = [40.0]
+    
+
+        sol, info, ier, msg = fsolve(equations, x0=x0, full_output=True)
+        if ier != 1:
+            print("⚠️ FSOLVE n'a pas convergé :", msg)
+
+        beta_sol = sol[0]
+
+        # Sanity check / log
+        T, D, P_mech, theta = power(beta_sol)
+        print(f"u0 = {V:.2f} m/s | beta = {beta_sol:.2f}° | T = {T:.2f} N" )
+        return float(V), float(beta_sol), float(T), float(D)
+
+    def acceleration_distance():
+        V, beta_pitch_deg, T, D = compute_blade_pitch()
+        M = 8430 * 0.45359237   # [kg]
+        g       = 9.81                # [m/s^2]
+        a = (T - D)/(M * g)
+        print(T, D, a )
+        return a 
+
+
+
+
+    print ("Cl during take-off:", lift_coefficient())
+    print("Blade pitch during take-off:", compute_blade_pitch())
+    print("Acceleration during take-off:", acceleration_distance())
+
+print(take_off())

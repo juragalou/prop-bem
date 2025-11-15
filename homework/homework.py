@@ -74,14 +74,13 @@ def compute_induction_factors(
             A_next = (1 - w)*A + w*A_new
 
             if abs(a_next - a) < tol and abs(A_next - A) < tol:
-                a, A = a_next, A_next
                 converged = True
                 break
 
             a, A = a_next, A_next
 
         if not converged:
-            a, A = 0.0, 0.0
+            a, A = 0,0
             
 
 
@@ -115,6 +114,8 @@ def compute_forces(R, a_factors, A_factors, v, rho, omega):
     P_mech = Q_total * omega
 
     return T_r, Q_r, T_total, Q_total, P_mech
+
+
 def compute_performance_curves(
     cst_pitch,
     rho,
@@ -249,3 +250,7 @@ def save_results(results, filename="BEM_results.csv", folder="results"):
     # Sauvegarde
     df.to_csv(filepath, index=False)
     print(f"✅ Résultats sauvegardés dans : {filepath}")
+
+
+
+    
